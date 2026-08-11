@@ -49,10 +49,10 @@ class _Orchestrator:
         return None
 
 
-def _observation():
+def _observation(sequence_id=0):
     return {
         "episode_id": "episode-1",
-        "sequence_id": 0,
+        "sequence_id": sequence_id,
         "task_instruction": "put the mug on the plate",
         "observation/image": np.zeros((32, 32, 3), dtype=np.uint8),
         "observation/wrist_image": np.zeros((32, 32, 3), dtype=np.uint8),
@@ -81,3 +81,17 @@ def test_hierarchical_policy_rejects_missing_subgoal():
     policy = HierarchicalPi05Policy(_LowLevel(), _Orchestrator(subgoal=False))
     with pytest.raises(RuntimeError, match="without a Cosmos subgoal image"):
         policy.infer(_observation())
+
+
+def test_hierarchical_policy_reuses_subgoal_at_low_level_rate():
+    low = _LowLevel()
+    orchestrator = _Orchestrator()
+    policy = HierarchicalPi05Policy(low, orchestrator, high_level_interval=3)
+
+    first = policy.infer(_observation(0))
+    second = policy.infer(_observation(1))
+
+    assert first["decision"]["reused"] is False
+    assert second["decision"]["reused"] is True
+    assert second["decision"]["planned_sequence_id"] == 0
+    assert orchestrator.resets == ["episode-1"]

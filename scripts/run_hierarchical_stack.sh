@@ -15,10 +15,18 @@ POLICY_PORT="${POLICY_PORT:-8000}"
 QWEN_GPU="${QWEN_GPU:-0}"
 QWEN_PYTHON="${QWEN_PYTHON:-${REPOSITORY_ROOT}/.venv-qwen/bin/python}"
 COSMOS_GPUS="${COSMOS_GPUS:-1,2,3}"
+COSMOS_PYTHON="${COSMOS_PYTHON:-${REPOSITORY_ROOT}/external/cosmos-framework/.venv/bin/python}"
+COSMOS_MAX_MEMORY_GIB="${COSMOS_MAX_MEMORY_GIB:-0}"
+COSMOS_DEPLOY_FRAMES="${COSMOS_DEPLOY_FRAMES:-5}"
 PI05_GPUS="${PI05_GPUS:-4}"
+HIGH_LEVEL_INTERVAL="${HIGH_LEVEL_INTERVAL:-10}"
 LOG_DIR="${LOG_DIR:-outputs/service_logs}"
 if [[ ! -x "${QWEN_PYTHON}" ]]; then
   echo "Missing Qwen runtime ${QWEN_PYTHON}; run scripts/setup_qwen_env.sh first." >&2
+  exit 2
+fi
+if [[ ! -x "${COSMOS_PYTHON}" ]]; then
+  echo "Missing Cosmos runtime ${COSMOS_PYTHON}; run scripts/cosmos/setup_cosmos_framework.sh first." >&2
   exit 2
 fi
 mkdir -p "${LOG_DIR}"
@@ -39,10 +47,12 @@ CUDA_VISIBLE_DEVICES="${QWEN_GPU}" "${QWEN_PYTHON}" scripts/services/high_level_
   >"${LOG_DIR}/high_level.log" 2>&1 &
 children+=("$!")
 
-uv run python scripts/services/cosmos_server.py \
+CUDA_VISIBLE_DEVICES="${COSMOS_GPUS}" "${COSMOS_PYTHON}" scripts/services/cosmos_server.py \
   --model "${COSMOS_MODEL}" \
-  --framework-worker \
-  --cosmos-gpus "${COSMOS_GPUS}" \
+  --diffusers \
+  --diffusers-device-map balanced \
+  --diffusers-max-memory-gib "${COSMOS_MAX_MEMORY_GIB}" \
+  --diffusers-deploy-num-frames "${COSMOS_DEPLOY_FRAMES}" \
   --port "${COSMOS_PORT}" \
   >"${LOG_DIR}/cosmos.log" 2>&1 &
 children+=("$!")
@@ -63,5 +73,6 @@ CUDA_VISIBLE_DEVICES="${PI05_GPUS}" uv run python scripts/serve_hierarchical_pol
   --checkpoint-dir "${PI05_CHECKPOINT}" \
   --high-level-endpoint "http://127.0.0.1:${HIGH_LEVEL_PORT}" \
   --cosmos-endpoint "http://127.0.0.1:${COSMOS_PORT}" \
+  --high-level-interval "${HIGH_LEVEL_INTERVAL}" \
   --pytorch-device cuda:0 \
   --port "${POLICY_PORT}"

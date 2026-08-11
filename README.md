@@ -76,7 +76,8 @@ conflicts with the π0.5 training environment. Qwen3.5 is likewise isolated in
 Transformers 4.53.
 
 See [the implementation guide](docs/cosmos_pi05_architecture.md) for contracts,
-training details, and migration decisions.
+training details, and migration decisions. The first same-state native-vs-Cosmos
+rollout is recorded in [the LIBERO Long A/B report](docs/libero_long_ab_20260812.md).
 
 ## Upstream openpi reference
 

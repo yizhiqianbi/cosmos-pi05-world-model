@@ -26,7 +26,10 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 class Args:
     host: str = "127.0.0.1"
     port: int = 8000
+    mode: str = "cosmos"
     task_suite_name: str = "libero_10"
+    task_id: int = -1
+    first_episode: int = 0
     num_trials_per_task: int = 50
     max_steps: int = 520
     wait_steps: int = 10
@@ -118,30 +121,41 @@ def evaluate(args: Args) -> dict:
         raise ValueError("This evaluator is intentionally scoped to LIBERO-Long / libero_10")
     if args.replan_steps <= 0:
         raise ValueError("replan_steps must be positive")
+    if args.mode not in {"native", "cosmos"}:
+        raise ValueError("mode must be either 'native' or 'cosmos'")
+    if args.first_episode < 0:
+        raise ValueError("first_episode must be non-negative")
     np.random.seed(args.seed)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "episodes").mkdir(exist_ok=True)
     if args.save_videos:
         (args.output_dir / "videos").mkdir(exist_ok=True)
+    if args.mode == "cosmos":
+        (args.output_dir / "subgoals").mkdir(exist_ok=True)
 
     suite = benchmark.get_benchmark_dict()[args.task_suite_name]()
     client = websocket_client_policy.WebsocketClientPolicy(args.host, args.port)
     metadata = client.get_server_metadata()
-    if not metadata.get("requires_subgoal_image"):
+    if args.mode == "cosmos" and not metadata.get("requires_subgoal_image"):
         raise RuntimeError("Connected server is not the Cosmos-subgoal pi0.5 policy")
+    task_ids = range(suite.n_tasks) if args.task_id < 0 else [args.task_id]
+    if any(task_id < 0 or task_id >= suite.n_tasks for task_id in task_ids):
+        raise ValueError(f"task_id must be in [0, {suite.n_tasks}), got {args.task_id}")
 
     records: list[dict] = []
-    for task_id in range(suite.n_tasks):
+    for task_id in task_ids:
         task = suite.get_task(task_id)
         instruction = str(task.language)
         initial_states = suite.get_task_init_states(task_id)
-        if args.num_trials_per_task > len(initial_states):
+        episode_stop = args.first_episode + args.num_trials_per_task
+        if episode_stop > len(initial_states):
             raise ValueError(
-                f"Requested {args.num_trials_per_task} trials but task {task_id} has {len(initial_states)} states"
+                f"Requested episodes [{args.first_episode}, {episode_stop}) but task {task_id} "
+                f"has {len(initial_states)} states"
             )
         env = _environment(task, resolution=256, seed=args.seed)
         try:
-            for episode_idx in range(args.num_trials_per_task):
+            for episode_idx in range(args.first_episode, episode_stop):
                 target = _episode_path(args.output_dir, task_id, episode_idx)
                 if args.resume and target.is_file():
                     records.append(json.loads(target.read_text()))
@@ -152,7 +166,7 @@ def evaluate(args: Args) -> dict:
                 for _ in range(args.wait_steps):
                     obs, _, _, _ = env.step(DUMMY_ACTION)
 
-                episode_id = f"libero-long-{task_id:02d}-{episode_idx:02d}"
+                episode_id = f"libero-long-{args.mode}-{task_id:02d}-{episode_idx:02d}"
                 action_plan: collections.deque[np.ndarray] = collections.deque()
                 trace: list[dict] = []
                 replay: list[np.ndarray] = []
@@ -186,6 +200,16 @@ def evaluate(args: Args) -> dict:
                                 f"Policy horizon {len(actions)} is shorter than replan_steps={args.replan_steps}"
                             )
                         decision = dict(result.get("decision", {}))
+                        subgoal_path = None
+                        if args.mode == "cosmos" and "subgoal_image" in result:
+                            planned_sequence_id = int(decision.get("planned_sequence_id", sequence_id))
+                            subgoal_path = (
+                                args.output_dir
+                                / "subgoals"
+                                / f"task_{task_id:02d}_episode_{episode_idx:02d}_query_{planned_sequence_id:03d}.png"
+                            )
+                            if not subgoal_path.exists():
+                                imageio.imwrite(subgoal_path, np.asarray(result["subgoal_image"], dtype=np.uint8))
                         trace.append(
                             {
                                 "sequence_id": sequence_id,
@@ -194,13 +218,18 @@ def evaluate(args: Args) -> dict:
                                 "route": decision.get("route"),
                                 "router": decision.get("router"),
                                 "subgoal_source": decision.get("subgoal_source"),
+                                "decision_reused": bool(decision.get("reused", False)),
+                                "planned_sequence_id": decision.get("planned_sequence_id"),
                                 "has_subgoal_image": bool(decision.get("has_subgoal_image")),
                                 "degraded": bool(decision.get("degraded", False)),
                                 "error": decision.get("error"),
                                 "beam": decision.get("beam", []),
                                 "actions_shape": list(actions.shape),
+                                "actions": actions.tolist(),
                                 "action_min": float(actions.min()),
                                 "action_max": float(actions.max()),
+                                "subgoal_path": str(subgoal_path) if subgoal_path else None,
+                                "server_timing": result.get("server_timing", {}),
                             }
                         )
                         action_plan.extend(actions[: args.replan_steps])
@@ -254,6 +283,7 @@ def evaluate(args: Args) -> dict:
     successes = sum(int(record["success"]) for record in records)
     summary = {
         "schema_version": "cosmos-pi05.libero-eval.v1",
+        "mode": args.mode,
         "suite": args.task_suite_name,
         "successes": successes,
         "episodes": len(records),

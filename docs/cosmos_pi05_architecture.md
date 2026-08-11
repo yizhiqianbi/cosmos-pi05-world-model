@@ -42,7 +42,10 @@ For sequence `t`:
    ```
 
 6. π0.5 performs the configured flow-matching denoising steps and returns a
-   `10 × 7` action chunk. The evaluator executes five actions and replans.
+   `10 × 7` action chunk. The evaluator executes five actions and refreshes the
+   low-level action chunk. By default, the slower Qwen/Cosmos layer refreshes
+   every ten low-level queries (about 50 LIBERO steps); between refreshes,
+   π0.5 tracks the same subgoal from fresh observations and state.
 7. The new observation is fed back into the same episode state. Stale sequence
    results are rejected by the orchestrator.
 
@@ -80,7 +83,8 @@ It first runs openpi normalization-stat computation, then full fine-tuning from
 Three services are intentionally isolated:
 
 - Qwen role service: proposal, value, and reflection adapters on port 10090.
-- Cosmos service: official Cosmos Framework worker behind HTTP on port 10091.
+- Cosmos service: resident Diffusers `Cosmos3OmniPipeline` from the isolated
+  Cosmos Framework environment, behind HTTP on port 10091.
 - Hierarchical π0.5 websocket policy on port 8000.
 
 `run_hierarchical_stack.sh` owns these processes and terminates its children on
@@ -91,6 +95,11 @@ CUDA visibility so JAX π0.5 does not reserve memory on the planner GPUs.
 Qwen3.5 also has its own `.venv-qwen`: its Transformers 5.5 requirement is
 incompatible with openpi's pinned Transformers 4.53 runtime. The Cosmos
 Framework and LIBERO simulator remain independently isolated as well.
+
+The resident Cosmos backend is important operationally. In the LIBERO Long
+smoke evaluation, loading the 35 GB model per request took 103.6 seconds;
+keeping it resident reduced a complete 35-step subgoal request to roughly
+10 seconds after warm-up.
 
 The LIBERO simulator runs in `.venv-libero`, separate from the Python 3.11
 training/server environment. `setup_libero_eval_env.sh` reproduces the

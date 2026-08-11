@@ -831,6 +831,32 @@ _CONFIGS = [
             "action_contract": "libero_osc_pose_delta_7d",
         },
     ),
+    # Inference-only compatibility config for validating the complete Cosmos
+    # path before the Long subgoal checkpoint finishes training. It loads the
+    # official pi05_libero normalization assets and weights, but exposes the
+    # native third-image subgoal transform. Do not report it as a trained
+    # subgoal-conditioned checkpoint.
+    TrainConfig(
+        name="pi05_libero_cosmos_bootstrap",
+        project_name="cosmos-pi05-world-model",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotLiberoSubgoalDataConfig(
+            repo_id="physical-intelligence/libero",
+            assets=AssetsConfig(asset_id="physical-intelligence/libero"),
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        batch_size=256,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_libero/params"),
+        num_train_steps=30_000,
+        wandb_enabled=False,
+        policy_metadata={
+            "architecture": "pi0.5+cosmos3-nano",
+            "requires_subgoal_image": True,
+            "subgoal_slot": "right_wrist_0_rgb",
+            "bootstrap_untrained_subgoal_input": True,
+            "action_contract": "libero_osc_pose_delta_7d",
+        },
+    ),
     #
     # Fine-tuning Aloha configs.
     #

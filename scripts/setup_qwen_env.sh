@@ -5,7 +5,9 @@ REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QWEN_VENV="${QWEN_VENV:-${REPOSITORY_ROOT}/.venv-qwen}"
 PYTORCH_INDEX_URL="${PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cu128}"
 
-uv venv --python 3.11 "${QWEN_VENV}"
+if [[ ! -x "${QWEN_VENV}/bin/python" ]]; then
+  uv venv --python 3.11 "${QWEN_VENV}"
+fi
 uv pip install \
   --python "${QWEN_VENV}/bin/python" \
   --index-url "${PYTORCH_INDEX_URL}" \

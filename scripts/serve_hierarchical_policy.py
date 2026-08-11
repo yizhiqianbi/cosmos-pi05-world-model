@@ -31,6 +31,7 @@ class Args:
     world_profile: str = "deploy"
     denoising_steps: int = 10
     decision_timeout_s: float = 1800.0
+    high_level_interval: int = 10
     pytorch_device: str | None = None
 
 
@@ -59,11 +60,13 @@ def main(args: Args) -> None:
         low_level,
         orchestrator,
         decision_timeout_s=args.decision_timeout_s,
+        high_level_interval=args.high_level_interval,
         metadata={
             **(low_level.metadata or {}),
             "config_name": args.config_name,
             "checkpoint_dir": args.checkpoint_dir,
             "denoising_steps": args.denoising_steps,
+            "high_level_interval": args.high_level_interval,
         },
     )
     hostname = socket.gethostname()

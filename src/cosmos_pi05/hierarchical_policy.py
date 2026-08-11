@@ -85,17 +85,23 @@ class HierarchicalPi05Policy(_base_policy.BasePolicy):
         orchestrator: HierarchicalOrchestrator,
         *,
         decision_timeout_s: float = 180.0,
+        high_level_interval: int = 10,
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        if high_level_interval <= 0:
+            raise ValueError("high_level_interval must be positive")
         self._low_level = low_level_policy
         self._orchestrator = orchestrator
         self._decision_timeout_s = float(decision_timeout_s)
+        self._high_level_interval = int(high_level_interval)
         self._lock = threading.RLock()
         self._known_episodes: set[str] = set()
+        self._episode_decisions: dict[str, tuple[HighLevelDecision, int]] = {}
         self._metadata = {
             "architecture": "qwen3.5+cosmos3-nano+pi0.5",
             "requires_subgoal_image": True,
             "schema_version": "cosmos-pi05.v1",
+            "high_level_interval": self._high_level_interval,
             **(metadata or {}),
         }
 
@@ -107,12 +113,15 @@ class HierarchicalPi05Policy(_base_policy.BasePolicy):
         with self._lock:
             self._orchestrator.reset(episode_id)
             self._known_episodes.add(episode_id)
+            self._episode_decisions.pop(episode_id, None)
 
     @override
     def reset(self) -> None:
         # The websocket protocol has no episode identifier on reset.  Runtime
         # callers should send sequence_id=0; infer() then resets that episode.
-        pass
+        with self._lock:
+            self._known_episodes.clear()
+            self._episode_decisions.clear()
 
     @override
     def infer(self, obs: dict) -> dict:
@@ -135,18 +144,25 @@ class HierarchicalPi05Policy(_base_policy.BasePolicy):
         with self._lock:
             if sequence_id == 0 or episode_id not in self._known_episodes:
                 self.reset_episode(episode_id)
-            context = HighLevelObservation(
-                episode_id=episode_id,
-                sequence_id=sequence_id,
-                timestamp_s=float(obs.get("timestamp_s", time.time())),
-                task_instruction=task,
-                previous_subtask=str(obs.get("previous_subtask", "")),
-                memory=str(obs.get("memory", "")),
-                images={"agentview": agent_image, "wrist": wrist_image},
-                metadata={"embodiment": "Franka Panda", "environment": "LIBERO"},
-            )
-            decision = self._orchestrator.submit(context)
-            decision = self._wait_for_current_decision(episode_id, sequence_id, decision)
+            cached = self._episode_decisions.get(episode_id)
+            should_plan = cached is None or sequence_id - cached[1] >= self._high_level_interval
+            if should_plan:
+                context = HighLevelObservation(
+                    episode_id=episode_id,
+                    sequence_id=sequence_id,
+                    timestamp_s=float(obs.get("timestamp_s", time.time())),
+                    task_instruction=task,
+                    previous_subtask=str(obs.get("previous_subtask", "")),
+                    memory=str(obs.get("memory", "")),
+                    images={"agentview": agent_image, "wrist": wrist_image},
+                    metadata={"embodiment": "Franka Panda", "environment": "LIBERO"},
+                )
+                decision = self._orchestrator.submit(context)
+                decision = self._wait_for_current_decision(episode_id, sequence_id, decision)
+                planned_sequence_id = sequence_id
+                self._episode_decisions[episode_id] = (decision, planned_sequence_id)
+            else:
+                decision, planned_sequence_id = cached
 
             if decision.degraded:
                 raise RuntimeError(f"High-level decision degraded: {decision.error or decision.route}")
@@ -166,13 +182,20 @@ class HierarchicalPi05Policy(_base_policy.BasePolicy):
                 raise ValueError(f"pi0.5 returned invalid LIBERO action shape {actions.shape}")
             if not np.isfinite(actions).all():
                 raise ValueError("pi0.5 returned non-finite actions")
+            decision_payload = decision.as_dict()
+            decision_payload.update(
+                {
+                    "reused": not should_plan,
+                    "planned_sequence_id": planned_sequence_id,
+                }
+            )
             result.update(
                 {
                     "actions": actions,
                     "episode_id": episode_id,
                     "sequence_id": sequence_id,
                     "committed_subtask": decision.committed_subtask,
-                    "decision": decision.as_dict(),
+                    "decision": decision_payload,
                     "subgoal_image": np.asarray(decision.subgoal_image, dtype=np.uint8),
                 }
             )

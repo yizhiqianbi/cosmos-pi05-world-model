@@ -6,11 +6,14 @@ EVAL_VENV="${LIBERO_EVAL_VENV:-${REPOSITORY_ROOT}/.venv-libero}"
 
 cd "${REPOSITORY_ROOT}"
 git submodule update --init --recursive third_party/libero
-uv venv --python 3.8 "${EVAL_VENV}"
+if [[ ! -x "${EVAL_VENV}/bin/python" ]]; then
+  uv venv --python 3.8 "${EVAL_VENV}"
+fi
 uv pip sync \
   --python "${EVAL_VENV}/bin/python" \
   examples/libero/requirements.txt \
   third_party/libero/requirements.txt \
+  packages/openpi-client/pyproject.toml \
   --extra-index-url https://download.pytorch.org/whl/cu113 \
   --index-strategy=unsafe-best-match
 uv pip install \
