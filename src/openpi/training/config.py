@@ -20,6 +20,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.libero_subgoal_policy as libero_subgoal_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -352,6 +353,43 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotLiberoSubgoalDataConfig(DataConfigFactory):
+    """LIBERO data contract with a native third-image visual subgoal.
+
+    The dataset stores the current agent and wrist images plus the terminal
+    agent-view image for the current semantic stage. At runtime the third
+    image is supplied by Cosmos3-Nano instead of the demonstration.
+    """
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/image": "image",
+                        "observation/wrist_image": "wrist_image",
+                        "observation/subgoal_image": "subgoal_image",
+                        "observation/state": "state",
+                        "actions": "actions",
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+        data_transforms = _transforms.Group(
+            inputs=[libero_subgoal_policy.LiberoSubgoalInputs(model_type=model_config.model_type)],
+            outputs=[libero_subgoal_policy.LiberoSubgoalOutputs()],
+        )
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=ModelTransformFactory()(model_config),
         )
 
 
@@ -760,6 +798,38 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_libero_long_subgoal",
+        project_name="cosmos-pi05-world-model",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
+        data=LeRobotLiberoSubgoalDataConfig(
+            # The converter in examples/libero/convert_long_hdf5_to_lerobot.py
+            # writes this local LeRobot repository by default.
+            repo_id="hubin/libero_long_subgoal",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        batch_size=256,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=100,
+            peak_lr=5e-5,
+            decay_steps=3_000,
+            decay_lr=5e-6,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=30_000,
+        num_workers=8,
+        save_interval=500,
+        keep_period=1_000,
+        wandb_enabled=False,
+        policy_metadata={
+            "architecture": "pi0.5+cosmos3-nano",
+            "requires_subgoal_image": True,
+            "subgoal_slot": "right_wrist_0_rgb",
+            "action_contract": "libero_osc_pose_delta_7d",
+        },
     ),
     #
     # Fine-tuning Aloha configs.

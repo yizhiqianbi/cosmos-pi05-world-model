@@ -1,4 +1,84 @@
-# openpi
+# Cosmos3-Nano × π0.5 World Model
+
+This is the standalone successor to the earlier Tau-0 integration. It uses the
+official [Physical Intelligence openpi](https://github.com/Physical-Intelligence/openpi)
+implementation of **π0.5** as the low-level VLA and keeps high-level planning,
+world-model imagination, and robot control behind explicit interfaces.
+
+```text
+LIBERO observation + full task
+              │
+              ▼
+Qwen3.5 Proposal + memory ── Adaptive TTC router
+              │ Fast                     │ uncertain
+              │                          ▼
+              │              Beam search + Cosmos3-Nano
+              │                 + Value + Reflection
+              └──────────────┬───────────┘
+                             ▼
+           committed text subtask + subgoal image
+                             ▼
+       π0.5 (agent view + wrist view + subgoal image + state)
+                             ▼
+                  10 × 7 LIBERO action chunk
+                             ▼
+                      LIBERO environment
+```
+
+The important contract change is that the Cosmos image is a native π0.5 visual
+input. The current observation occupies `base_0_rgb` and `left_wrist_0_rgb`;
+the desired near-future image occupies `right_wrist_0_rgb`. The hierarchical
+policy refuses to execute if Cosmos cannot produce the selected immediate
+subgoal, so it cannot silently regress to the old text-only Long policy.
+
+## Repository-specific entry points
+
+- `src/openpi/policies/libero_subgoal_policy.py`: native three-image π0.5 input/output mapping.
+- `src/cosmos_pi05/high_level/`: Proposal, adaptive TTC, beam search, Cosmos, value, reflection, and episode state.
+- `src/cosmos_pi05/hierarchical_policy.py`: complete high-level-to-low-level policy wrapper.
+- `examples/libero/convert_long_hdf5_to_lerobot.py`: all 10 Long tasks, semantic stage episodes, terminal-image goals.
+- `scripts/train_pi05_libero_long_5ep.sh`: normalization plus exact five-epoch π0.5 fine-tuning.
+- `scripts/serve_hierarchical_policy.py`: standalone openpi websocket policy server.
+- `examples/libero/eval_hierarchical.py`: resumable official-style 10 × 50 closed-loop evaluation.
+- `scripts/run_hierarchical_stack.sh`: launches Qwen, Cosmos, and π0.5 together.
+- `scripts/setup_libero_eval_env.sh`: creates the isolated Python 3.8 simulator environment required by LIBERO.
+
+## Quick start
+
+```bash
+git submodule update --init --recursive
+GIT_LFS_SKIP_SMUDGE=1 uv sync
+scripts/setup_qwen_env.sh
+scripts/cosmos/setup_cosmos_framework.sh
+
+uv run examples/libero/convert_long_hdf5_to_lerobot.py \
+  --input-dir /path/to/libero_10
+
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+  BATCH_SIZE=256 scripts/train_pi05_libero_long_5ep.sh
+```
+
+After training, set `QWEN_BASE`, `QWEN_ADAPTER_ROOT`, `COSMOS_MODEL`, and
+`PI05_CHECKPOINT`, then run `scripts/run_hierarchical_stack.sh`. In a second
+terminal run:
+
+```bash
+scripts/setup_libero_eval_env.sh
+scripts/run_libero_eval.sh \
+  --num-trials-per-task 50 \
+  --output-dir outputs/libero_long_500ep
+```
+
+The evaluator deliberately has a separate environment because the official
+LIBERO simulator pins Python 3.8, NumPy 1.22, and an older PyTorch stack that
+conflicts with the π0.5 training environment. Qwen3.5 is likewise isolated in
+`.venv-qwen` because it requires Transformers 5.5 while upstream openpi pins
+Transformers 4.53.
+
+See [the implementation guide](docs/cosmos_pi05_architecture.md) for contracts,
+training details, and migration decisions.
+
+## Upstream openpi reference
 
 openpi holds open-source models and packages for robotics, published by the [Physical Intelligence team](https://www.physicalintelligence.company/).
 

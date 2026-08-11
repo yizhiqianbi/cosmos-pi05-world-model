@@ -1,7 +1,10 @@
 # Data directories.
 assets/
+artifacts/
 checkpoints/
 data/
+external/
+outputs/
 wandb/
 
 # Byte-compiled / optimized / DLL files
@@ -130,6 +133,8 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-libero/
+.venv-qwen/
 env/
 venv/
 ENV/
