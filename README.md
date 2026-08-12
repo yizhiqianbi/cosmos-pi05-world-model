@@ -38,6 +38,9 @@ subgoal, so it cannot silently regress to the old text-only Long policy.
 - `src/cosmos_pi05/hierarchical_policy.py`: complete high-level-to-low-level policy wrapper.
 - `examples/libero/convert_long_hdf5_to_lerobot.py`: all 10 Long tasks, semantic stage episodes, terminal-image goals.
 - `scripts/train_pi05_libero_long_5ep.sh`: normalization plus exact five-epoch π0.5 fine-tuning.
+- `scripts/train_pi05_subgoal.sh`: standalone π0.5 visual-subgoal trainer.
+- `scripts/train_cosmos_subgoal.sh`: standalone Cosmos3-Nano I2V Subgoal trainer.
+- `scripts/cotrain_cosmos_pi05.sh`: alternating generated-goal/action-feedback co-training loop.
 - `scripts/serve_hierarchical_policy.py`: standalone openpi websocket policy server.
 - `examples/libero/eval_hierarchical.py`: resumable official-style 10 × 50 closed-loop evaluation.
 - `scripts/run_hierarchical_stack.sh`: launches Qwen, Cosmos, and π0.5 together.
@@ -78,6 +81,8 @@ Transformers 4.53.
 See [the implementation guide](docs/cosmos_pi05_architecture.md) for contracts,
 training details, and migration decisions. The first same-state native-vs-Cosmos
 rollout is recorded in [the LIBERO Long A/B report](docs/libero_long_ab_20260812.md).
+The separate and alternating training commands are documented in
+[the co-training guide](docs/cotrain.md).
 
 ## Upstream openpi reference
 

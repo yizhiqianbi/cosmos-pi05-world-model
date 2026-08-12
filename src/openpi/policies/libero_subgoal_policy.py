@@ -9,12 +9,68 @@ tokens avoids lossy captions and uses pi0.5's native three-camera contract.
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 import einops
 import numpy as np
+from PIL import Image
 
 from openpi import transforms
 from openpi.models import model as _model
+
+
+@dataclasses.dataclass(frozen=True)
+class GeneratedSubgoalOverlay(transforms.DataTransformFn):
+    """Replace an oracle stage goal with a generated goal during training.
+
+    The transform belongs to ``DataConfig.repack_transforms`` rather than the
+    policy input transforms.  Consequently it is active only for LeRobot
+    training rows and never tries to read an episode id during deployment.
+    Missing generated goals fall back to the oracle image unless ``strict`` is
+    requested.  The hash-based mixture is deterministic across dataloader
+    workers and epochs.
+    """
+
+    directory: str
+    probability: float = 1.0
+    seed: int = 0
+    strict: bool = False
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError("Generated-subgoal probability must be in [0, 1]")
+
+    @staticmethod
+    def _scalar(value: object, name: str) -> int:
+        array = np.asarray(value)
+        if array.size != 1:
+            raise ValueError(f"{name} must contain one scalar, got {array.shape}")
+        return int(array.reshape(()))
+
+    def _selected(self, episode_index: int, frame_index: int) -> bool:
+        if self.probability <= 0.0:
+            return False
+        if self.probability >= 1.0:
+            return True
+        # Integer mixing avoids process-specific Python hash randomization.
+        value = (episode_index * 1_103_515_245 + frame_index * 12_345 + self.seed) & 0xFFFFFFFF
+        return value / 2**32 < self.probability
+
+    def __call__(self, data: dict) -> dict:
+        result = dict(data)
+        episode_index = self._scalar(result.pop("_episode_index"), "episode_index")
+        frame_index = self._scalar(result.pop("_frame_index"), "frame_index")
+        if not self._selected(episode_index, frame_index):
+            return result
+
+        path = Path(self.directory) / f"episode_{episode_index:06d}.png"
+        if not path.is_file():
+            if self.strict:
+                raise FileNotFoundError(f"Missing generated subgoal for selected row: {path}")
+            return result
+        with Image.open(path) as image:
+            result["observation/subgoal_image"] = np.asarray(image.convert("RGB"), dtype=np.uint8)
+        return result
 
 
 def make_libero_subgoal_example() -> dict:
