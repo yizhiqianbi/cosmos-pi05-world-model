@@ -394,6 +394,8 @@ With torch.compile, inference speed is comparable between JAX and PyTorch.
 
 ## Troubleshooting
 
+For the differentiable Cosmos3-Nano → subgoal image → π0.5 PyTorch trainer, including LIBERO Long data pairing, 8-GPU launch, resume, and merged inference export, see [docs/torch_end_to_end_cotrain.md](docs/torch_end_to_end_cotrain.md).
+
 We will collect common issues and their solutions here. If you encounter an issue, please check here first. If you can't find a solution, please file an issue on the repo (see [here](CONTRIBUTING.md) for guidelines).
 
 | Issue                                     | Resolution                                                                                                                                                                                   |
