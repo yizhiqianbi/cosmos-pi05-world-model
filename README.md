@@ -146,6 +146,10 @@ scripts/cotrain/setup_torch_e2e_env.sh       # only needed for joint PyTorch tra
 
 ## Prepare LIBERO-Long data
 
+For VLM-derived semantic boundaries, use the auditable open-weight model pipeline in
+[`docs/vlm_subtask_pipeline.md`](docs/vlm_subtask_pipeline.md). The converter below retains the original deterministic
+task-specific segmentation path.
+
 Convert all ten task files. Each semantic stage becomes its own episode and every frame is paired with that stage's
 terminal agent-view image:
 
